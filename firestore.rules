@@ -1,0 +1,112 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitives
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+        (request.auth.token.email in ['buqa@bu.ac.th', 'atcharawadee.j@bu.ac.th', 'pacharin.s@bu.ac.th'] ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Phase 4: Entity Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'role', 'createdAt']) &&
+             data.uid is string &&
+             data.email is string &&
+             data.role in ['staff', 'admin'] &&
+             (data.staffId is string || !('staffId' in data)) &&
+             (data.department is string || !('department' in data)) &&
+             (data.position is string || !('position' in data));
+    }
+
+    function isValidTraining(data) {
+      return data.keys().hasAll(['title', 'date', 'startTime', 'endTime', 'capacity', 'currentBookings', 'academicYear', 'month', 'status']) &&
+             data.title is string && data.title.size() <= 255 &&
+             data.capacity is number && data.capacity > 0 &&
+             data.currentBookings is number &&
+             data.status in ['open', 'closed', 'full'];
+    }
+
+    function isValidBooking(data) {
+      return data.keys().hasAll(['trainingId', 'userId', 'status', 'bookingDate', 'trainingSnapshot']) &&
+             isValidId(data.trainingId) &&
+             isValidId(data.userId) &&
+             data.status in ['confirmed', 'cancelled', 'pending'] &&
+             data.trainingSnapshot.title is string &&
+             (data.attended is bool || !('attended' in data)) &&
+             (data.checkInTime is timestamp || !('checkInTime' in data));
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                    isValidUser(incoming()) &&
+                    incoming().role == existing().role; // Role can only be changed by admin (wait, this logic allows owner to update if valid, but role must match existing? Yes, and admin can update if they want to change role, but the current check `incoming().role == existing().role` applies to both. I'll split it.)
+      
+      allow update: if (isAdmin() && isValidUser(incoming())) ||
+                    (isOwner(userId) && isValidUser(incoming()) && incoming().role == existing().role);
+    }
+
+    // 1.1 Staff Master Collection
+    match /staff_master/{staffId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // 2. Trainings Collection
+    match /trainings/{trainingId} {
+      allow read: if true; // Public access for viewing catalog
+      allow create: if isAdmin() && isValidTraining(incoming());
+      allow update: if (isAdmin() && isValidTraining(incoming())) ||
+                    (isSignedIn() && 
+                     isValidTraining(incoming()) && 
+                     // Allow atomic increment/decrement by users during booking/cancellation
+                     incoming().diff(existing()).affectedKeys().hasOnly(['currentBookings', 'status']));
+    }
+
+    // 3. Bookings Collection
+    match /bookings/{bookingId} {
+      allow read: if isOwner(existing().userId) || isAdmin();
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isOwner(incoming().userId) && 
+                    isValidBooking(incoming()) &&
+                    // Enforce existence of training
+                    exists(/databases/$(database)/documents/trainings/$(incoming().trainingId)) &&
+                    // Enforce seat limit (double check)
+                    get(/databases/$(database)/documents/trainings/$(incoming().trainingId)).data.currentBookings < 
+                    get(/databases/$(database)/documents/trainings/$(incoming().trainingId)).data.capacity;
+      
+      allow update: if (isOwner(existing().userId) && 
+                        incoming().status == 'cancelled' && 
+                        incoming().diff(existing()).affectedKeys().hasOnly(['status'])) ||
+                    (isOwner(existing().userId) &&
+                        existing().status == 'confirmed' &&
+                        incoming().attended == true &&
+                        incoming().checkInTime == request.time &&
+                        incoming().diff(existing()).affectedKeys().hasOnly(['attended', 'checkInTime'])) ||
+                    isAdmin();
+    }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["staff", "admin"] },
+        "department": { "type": "string" },
+        "position": { "type": "string" },
+        "staffId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "Training": {
+      "title": "Training",
+      "description": "Training session details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "location": { "type": "string" },
+        "capacity": { "type": "number" },
+        "currentBookings": { "type": "number" },
+        "targetRoles": { "type": "array", "items": { "type": "string" } },
+        "academicYear": { "type": "string" },
+        "month": { "type": "number" },
+        "status": { "type": "string", "enum": ["open", "closed", "full"] },
+        "posterUrl": { "type": "string" }
+      },
+      "required": ["title", "date", "startTime", "endTime", "capacity", "academicYear", "month", "status"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "User booking record for a training",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "trainingId": { "type": "string" },
+        "userId": { "type": "string" },
+        "status": { "type": "string", "enum": ["confirmed", "cancelled", "pending"] },
+        "bookingDate": { "type": "string", "format": "date-time" },
+        "attended": { "type": "boolean" },
+        "checkInTime": { "type": "string", "format": "date-time" },
+        "trainingSnapshot": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "date": { "type": "string", "format": "date-time" },
+            "startTime": { "type": "string" },
+            "endTime": { "type": "string" },
+            "location": { "type": "string" }
+          }
+        }
+      },
+      "required": ["trainingId", "userId", "status", "bookingDate", "trainingSnapshot"]
+    },
+    "StaffMaster": {
+      "title": "Staff Master",
+      "description": "Pre-verified staff records for auto-profile sync",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "staffId": { "type": "string" },
+        "department": { "type": "string" },
+        "position": { "type": "string" }
+      },
+      "required": ["email", "displayName", "staffId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles"
+    },
+    "/staff_master/{staffId}": {
+      "schema": "StaffMaster",
+      "description": "Master list of BU staff"
+    },
+    "/trainings/{trainingId}": {
+      "schema": "Training",
+      "description": "Collection of available training sessions"
+    },
+    "/bookings/{bookingId}": {
+      "schema": "Booking",
+      "description": "Collection of user training bookings"
+    }
+  }
+}
